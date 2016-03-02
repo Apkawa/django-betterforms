@@ -5,7 +5,7 @@ from django.forms.models import inlineformset_factory
 from django.contrib.admin import widgets as admin_widgets
 from django.core.exceptions import ValidationError
 
-from betterforms.multiform import MultiForm, MultiModelForm
+from betterforms.multiform import MultiFormMixin, MultiModelFormMixin
 
 from .models import User, Profile, Badge, Author, Book, BookImage
 
@@ -24,7 +24,7 @@ class ProfileForm(forms.ModelForm):
         fields = ('name', 'display_name',)
 
 
-class UserProfileMultiForm(MultiModelForm):
+class UserProfileMultiForm(MultiModelFormMixin):
     form_classes = OrderedDict((
         ('user', UserForm),
         ('profile', ProfileForm),
@@ -42,7 +42,7 @@ class RaisesErrorForm(forms.Form):
         raise ValidationError('It broke')
 
 
-class ErrorMultiForm(MultiForm):
+class ErrorMultiForm(MultiFormMixin):
     form_classes = {
         'errors': RaisesErrorForm,
         'errors2': RaisesErrorForm,
@@ -56,7 +56,7 @@ class FileForm(forms.Form):
     hidden = forms.CharField(widget=forms.HiddenInput)
 
 
-class NeedsFileField(MultiForm):
+class NeedsFileField(MultiFormMixin):
     form_classes = OrderedDict((
         ('file', FileForm),
         ('errors', RaisesErrorForm),
@@ -69,7 +69,7 @@ class BadgeForm(forms.ModelForm):
         fields = ('name', 'color',)
 
 
-class BadgeMultiForm(MultiModelForm):
+class BadgeMultiForm(MultiModelFormMixin):
     form_classes = {
         'badge1': BadgeForm,
         'badge2': BadgeForm,
@@ -80,7 +80,7 @@ class NonModelForm(forms.Form):
     field1 = forms.CharField()
 
 
-class MixedForm(MultiModelForm):
+class MixedForm(MultiModelFormMixin):
     form_classes = {
         'badge': BadgeForm,
         'non_model': NonModelForm,
@@ -93,7 +93,7 @@ class AuthorForm(forms.ModelForm):
         fields = ('name', 'books',)
 
 
-class ManyToManyMultiForm(MultiModelForm):
+class ManyToManyMultiForm(MultiModelFormMixin):
     form_classes = {
         'badge': BadgeForm,
         'author': AuthorForm,
@@ -104,7 +104,7 @@ class OptionalFileForm(forms.Form):
     myfile = forms.FileField(required=False)
 
 
-class Step1Form(MultiModelForm):
+class Step1Form(MultiModelFormMixin):
     # This is required because the WizardView introspects it, but we don't have
     # a way of determining this dynamically, so just set it to an empty
     # dictionary.
@@ -129,7 +129,7 @@ class BookForm(forms.ModelForm):
 BookImageFormSet = inlineformset_factory(Book, BookImage, fields=('name',))
 
 
-class BookMultiForm(MultiModelForm):
+class BookMultiForm(MultiModelFormMixin):
     form_classes = {
         'book': BookForm,
         'error': RaisesErrorForm,
