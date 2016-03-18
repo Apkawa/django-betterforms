@@ -37,6 +37,7 @@ class MultiFormMixin(object):
     button.  MultiForm imitates the Form API so that it is invisible to anybody
     else that you are using a MultiForm.
     """
+    default_form_key = None
     form_classes = {}
     field_form_map = None
 
@@ -81,25 +82,33 @@ class MultiFormMixin(object):
     def _build_field_name(self, name, prefix):
         return "%s_%s" % (prefix, name)
 
-    def _update_field_form_map(self, form_key, form):
+    def _update_field_form_map(self, form_key, form_class):
+        if issubclass(form_class, forms.BaseFormSet):
+            return
         if self.field_form_map is None:
             self.field_form_map = {}
 
         field_form_map = self.field_form_map
-        for f_name, field in form.base_fields.items():
+        for f_name, field in form_class.base_fields.items():
             field_form_map[f_name] = form_key
             field_form_map[self._build_field_name(f_name, self.get_form_prefix(form_key))] = form_key
 
     def _get_aliased_fields(self):
         fields = defaultdict(list)
-        for form in self.forms.values():
+        for form_key, form in self.forms.items():
+            if isinstance(form, forms.BaseFormSet):
+                fields[form_key].append(form)
+                continue
             for f in form:
                 fields[f.name].append(f)
         return dict(fields)
 
     def _get_fields(self):
         fields = {}
-        for form in self.forms.values():
+        for form_key, form in self.forms.items():
+            if isinstance(form, forms.BaseFormSet):
+                fields[self._build_field_name(form_key, form.prefix)] = form
+                continue
             for f in form:
                 fields[self._build_field_name(f.name, form.prefix)] = f
         return fields
@@ -107,7 +116,7 @@ class MultiFormMixin(object):
     def get_initials(self, initial=None, *args, **kwargs):
         initials = initial or {}
         if initials and not all([isinstance(v, dict) for v in initials.values()]):
-            initials = {None: initials}
+            initials = {self.default_form_key: initials}
         return initials
 
     def get_form_classes(self, *args, **kwargs):
@@ -216,7 +225,19 @@ class MultiFormMixin(object):
         else:
             if cleaned_data is not None:
                 for key, data in cleaned_data.items():
-                    self.forms[key].cleaned_data = data
+                    form = self.forms[key]
+                    if isinstance(form, forms.BaseFormSet):
+                        map_data = {}
+                        for d in data:
+                            _ins = d.get('id')
+                            if _ins:
+                                map_data['id'] = _ins.id
+
+                        for i, _form in enumerate(form.forms):
+                            obj_id = _form.instance and _form.instance.id
+                            _form.cleaned_data = map_data.get(obj_id) or data[i]
+                    else:
+                        self.forms[key].cleaned_data = data
         return forms_valid and not self.crossform_errors
 
     def non_field_errors(self):
@@ -325,9 +346,11 @@ class MultiModelFormMixin(MultiFormMixin):
     def get_form_args_kwargs(self, key, args, kwargs):
         fargs, fkwargs = super(MultiModelFormMixin, self).get_form_args_kwargs(key, args, kwargs)
         try:
-            # If we only pass instance when there was one specified, we make it
-            # possible to use non-ModelForms together with ModelForms.
-            fkwargs['instance'] = self.instances[key]
+            form_class = self.form_classes[key]
+            if issubclass(form_class, forms.BaseModelFormSet):
+                fkwargs['queryset'] = self.instances[key]
+            else:
+                fkwargs['instance'] = self.instances[key]
         except KeyError:
             pass
         return fargs, fkwargs
