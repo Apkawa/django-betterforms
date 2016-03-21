@@ -28,6 +28,8 @@ from django.utils.encoding import python_2_unicode_compatible
 from django.utils.safestring import mark_safe
 from django.utils.six.moves import reduce
 
+from .decorators import lru_cache
+
 
 @python_2_unicode_compatible
 class MultiFormMixin(object):
@@ -54,6 +56,11 @@ class MultiFormMixin(object):
     @classproperty
     def _meta(cls):
         return cls.Meta
+
+    @property
+    @lru_cache(maxsize=30)
+    def _form_classes(self):
+        return self.get_form_classes(*self.args, **self.kwargs)
 
     def __init__(self, data=None, files=None, *args, **kwargs):
         # Some things, such as the WizardView expect these to exist.
@@ -130,9 +137,9 @@ class MultiFormMixin(object):
 
     def get_forms(self, *args, **kwargs):
         forms = OrderedDict()
-        for key, form_class in self.get_form_classes(*args, **kwargs).items():
+        for key, form_class in self._form_classes.items():
             self._update_field_form_map(key, form_class)
-            fargs, fkwargs = self.get_form_args_kwargs(key, args, kwargs)
+            fargs, fkwargs = self.get_form_args_kwargs(key, form_class, args, kwargs)
             form_class = self._build_form_class(key, form_class)
             forms[key] = form_class(*fargs, **fkwargs)
         return forms
@@ -146,7 +153,7 @@ class MultiFormMixin(object):
 
         return prefix
 
-    def get_form_args_kwargs(self, key, args, kwargs):
+    def get_form_args_kwargs(self, key, form_class, args, kwargs):
         """
         Returns the args and kwargs for initializing one of our form children.
         """
@@ -343,10 +350,9 @@ class MultiModelFormMixin(MultiFormMixin):
             return modelform_factory(model, **defaults)
         return base_form_class
 
-    def get_form_args_kwargs(self, key, args, kwargs):
-        fargs, fkwargs = super(MultiModelFormMixin, self).get_form_args_kwargs(key, args, kwargs)
+    def get_form_args_kwargs(self, key, form_class, args, kwargs):
+        fargs, fkwargs = super(MultiModelFormMixin, self).get_form_args_kwargs(key, form_class, args, kwargs)
         try:
-            form_class = self.form_classes[key]
             if issubclass(form_class, forms.BaseModelFormSet):
                 fkwargs['queryset'] = self.instances[key]
             else:
