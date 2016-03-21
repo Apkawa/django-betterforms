@@ -12,6 +12,8 @@ version = '1.1.5.dev0'
 def read(fname):
     return open(os.path.join(os.path.dirname(__file__), fname)).read()
 
+install_requires=filter(None, read('requirements.txt').splitlines())
+
 setup(
     name='django-betterforms',
     version=version,
@@ -21,10 +23,7 @@ setup(
     author="Fusionbox",
     author_email='programmers@fusionbox.com',
     packages=[package for package in find_packages() if package.startswith('betterforms')],
-    install_requires=[
-        'Django>=1.4',
-        'six',
-    ],
+    install_requires=install_requires,
     tests_require=[
         'mock>=1.0.1',
     ],
