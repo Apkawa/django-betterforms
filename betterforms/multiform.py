@@ -209,15 +209,20 @@ class MultiFormMixin(object):
         errors = ErrorDict()
         for form in self.forms.values():
             if form.errors:
-                for key, error_list in form.errors.items():
-                    names = [key, self._build_field_name(key, form.prefix)]
-                    for _k in names:
-                        if _k not in errors:
-                            if key == NON_FIELD_ERRORS:
-                                errors[_k] = self.error_class(error_class='nonfield')
-                            else:
-                                errors[_k] = self.error_class()
-                        errors[_k].extend(error_list)
+                if isinstance(form, forms.BaseFormSet):
+                    all_form_errors = form.errors
+                else:
+                    all_form_errors = [form.errors]
+                for form_error in all_form_errors:
+                    for key, error_list in form_error.items():
+                        names = [key, self._build_field_name(key, form.prefix)]
+                        for _k in names:
+                            if _k not in errors:
+                                if key == NON_FIELD_ERRORS:
+                                    errors[_k] = self.error_class(error_class='nonfield')
+                                else:
+                                    errors[_k] = self.error_class()
+                            errors[_k].extend(error_list)
         return errors
 
     def add_crossform_error(self, e):
