@@ -9,9 +9,10 @@ from django.db import models
 
 from collections import defaultdict
 
+from django.db.transaction import atomic
 from django.forms.models import modelform_factory
 
-from betterforms.utils import classproperty
+from betterforms.utils import classproperty, getattr_path, setattr_path
 
 try:
     from collections import OrderedDict
@@ -40,8 +41,11 @@ class MultiFormMixin(object):
     else that you are using a MultiForm.
     """
     default_form_key = None
+
     form_classes = {}
     field_form_map = None
+
+    required = None
 
     class Meta:
         fields = None
@@ -69,6 +73,7 @@ class MultiFormMixin(object):
             data=data,
             files=files,
         )
+        self.prefix = kwargs.get('prefix')
         self.error_class = kwargs.pop('error_class', ErrorList)
         self.initials = self.get_initials(initial=kwargs.pop('initial', None), *args, **kwargs)
         self.crossform_errors = []
@@ -82,7 +87,6 @@ class MultiFormMixin(object):
 
     def _init(self, *args, **kwargs):
         self.forms = self.get_forms(*args, **kwargs)
-
         self.fields = self._get_fields()
         self.aliased_fields = self._get_aliased_fields()
 
@@ -125,6 +129,11 @@ class MultiFormMixin(object):
         if initials and not all([isinstance(v, dict) for v in initials.values()]):
             initials = {self.default_form_key: initials}
         return initials
+
+    def get_required_forms(self):
+        if self.required is None:
+            return self.forms.keys()
+        return self.required
 
     def get_form_classes(self, *args, **kwargs):
         """
@@ -184,7 +193,7 @@ class MultiFormMixin(object):
     @property
     def changed_data(self):
         if self._changed_data is None:
-            self._changed_data = list(chain.from_iterable(form.changed_data for form in self.forms.values()))
+            self._changed_data = list(chain.from_iterable(form.changed_data for form in self.cleaned_forms.values()))
         return self._changed_data
 
     @property
@@ -205,9 +214,25 @@ class MultiFormMixin(object):
             self._errors = self.full_clean()
         return self._errors
 
+    def clean_forms(self):
+        required_forms = self.get_required_forms()
+        forms = dict(self.forms)
+        for key, form in forms.items():
+            if not form.has_changed() and key not in required_forms:
+                del forms[key]
+        return forms
+
+    @property
+    def cleaned_forms(self):
+        cleaned_forms = getattr(self, '_cleaned_forms', None)
+        if not cleaned_forms:
+            cleaned_forms = self.clean_forms()
+            setattr(self, '_cleaned_forms', cleaned_forms)
+        return cleaned_forms
+
     def full_clean(self):
         errors = ErrorDict()
-        for form in self.forms.values():
+        for form in self.cleaned_forms.values():
             if form.errors:
                 if isinstance(form, forms.BaseFormSet):
                     all_form_errors = form.errors
@@ -229,7 +254,8 @@ class MultiFormMixin(object):
         self.crossform_errors.append(e)
 
     def is_valid(self):
-        forms_valid = all(form.is_valid() for form in self.forms.values())
+        forms_valid = all(form.is_valid() for form in self.cleaned_forms.values())
+
         try:
             cleaned_data = self.clean()
         except ValidationError as e:
@@ -287,13 +313,26 @@ class MultiFormMixin(object):
     def cleaned_data(self):
         return OrderedDict(
             (key, form.cleaned_data)
-            for key, form in self.forms.items() if form.is_valid()
+            for key, form in self.cleaned_forms.items() if form.is_valid()
         )
 
     @cleaned_data.setter
     def cleaned_data(self, data):
         for key, value in data.items():
             self.forms[key].cleaned_data = value
+
+    @classproperty
+    def base_fields(cls):
+        # TODO dynamic fields
+        base_fields = {}
+        for form_key, form in cls.form_classes.items():
+            for f_name, field in form.base_fields.items():
+                base_fields['_'.join([form_key, f_name])] = field
+        return base_fields
+
+    @property
+    def default_key(self):
+        return self.default_form_key
 
 
 class MultiModelFormMixin(MultiFormMixin):
@@ -319,13 +358,31 @@ class MultiModelFormMixin(MultiFormMixin):
             self._init(*self.args, **self.kwargs)
 
     def get_instances(self, instance=None, *args, **kwargs):
-        instances = instance or {}
+        instances_map = instance or {}
         if isinstance(instance, models.Model):
-            instances = {self.default_instance_key: instance}
-        return instances
+            instances_map = {self.default_key: instance}
+        else:
+            instance = instances_map.get(self.default_key)
+
+        for key in self.form_classes:
+            result = self.get_instance(instance, key, *args, **kwargs)
+            if result is False:
+                continue
+            instances_map[key] = result
+        return instances_map
+
+    def get_instance(self, instance, key, *args, **kwargs):
+        if key == self.default_key:
+            return instance
+        else:
+            try:
+                return getattr_path(instance, key)
+            except AttributeError:
+                pass
+        return False
 
     def get_default_instance(self):
-        return self.instances.get(self.default_instance_key)
+        return self.instances.get(self.default_key)
 
     def _build_form_class(self, form_key, base_form_class):
         defaults = dict.fromkeys(['fields', 'exclude', 'widgets', 'model'])
@@ -342,14 +399,14 @@ class MultiModelFormMixin(MultiFormMixin):
                     if cleaned_meta_opt:
                         meta_opt = cleaned_meta_opt
 
-                elif form_key != self.default_instance_key:
+                elif form_key != self.default_key:
                     continue
 
             defaults[opt_key] = meta_opt
 
         model = defaults.pop('model', None)
         if model:
-            if form_key == self.default_instance_key:
+            if form_key == self.default_key:
                 # maybe admin.site
                 defaults['formfield_callback'] = getattr(self, 'formfield_callback', None)
             return modelform_factory(model, **defaults)
@@ -366,15 +423,44 @@ class MultiModelFormMixin(MultiFormMixin):
             pass
         return fargs, fkwargs
 
+    def save_object(self, obj, key, objects, commit=True):
+        default_key = self.default_key
+        if key == default_key:
+            for sub_key, sub_obj in objects.items():
+                if sub_key == default_key:
+                    continue
+                setattr_path(obj, sub_key, sub_obj)
+        else:
+            if commit:
+                obj.save()
+
+        return obj
+
+    def save_objects(self, objects, commit=True):
+        default_key = self.default_key
+        for key, obj in objects.items():
+            if key == default_key:
+                continue
+            self.save_object(obj, key, objects)
+
+        instance = objects[default_key]
+        self.save_object(instance, default_key, objects)
+        if commit:
+            instance.save()
+
+        return objects
+
+    @atomic
     def save_multiform(self, commit=True):
         objects = OrderedDict(
-            (key, form.save(commit))
-            for key, form in self.forms.items()
+            (key, form.save(commit=False))
+            for key, form in self.cleaned_forms.items()
         )
+        objects = self.save_objects(objects, commit=commit)
 
-        if any(hasattr(form, 'save_m2m') for form in self.forms.values()):
+        if any(hasattr(form, 'save_m2m') for form in self.cleaned_forms.values()):
             def save_m2m():
-                for form in self.forms.values():
+                for form in self.cleaned_forms.values():
                     if hasattr(form, 'save_m2m'):
                         form.save_m2m()
 
@@ -384,7 +470,11 @@ class MultiModelFormMixin(MultiFormMixin):
 
     def save(self, commit=True):
         objects = self.save_multiform(commit=commit)
-        return objects[self.default_instance_key]
+        return objects[self.default_key]
+
+    @property
+    def default_key(self):
+        return self.default_instance_key or self.default_form_key
 
 
 class MultiForm(forms.BaseForm, MultiFormMixin):
