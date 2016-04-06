@@ -3,6 +3,7 @@ from itertools import chain
 from operator import add
 
 from django import forms
+from django.forms.forms import BoundField
 from django.core.exceptions import NON_FIELD_ERRORS
 
 from django.db import models
@@ -30,6 +31,27 @@ from django.utils.safestring import mark_safe
 from django.utils.six.moves import reduce
 
 from .decorators import lru_cache
+
+
+class CallbackDict(dict):
+    def __init__(self, _d, get_callback=None, set_callback=None):
+        self._get_callback = get_callback
+        self._set_callback = set_callback
+        super(CallbackDict, self).__init__(_d)
+
+    def __getitem__(self, item):
+        if callable(self._get_callback):
+            ret = self._get_callback(self, item)
+            if ret is not None:
+                return ret
+        return super(CallbackDict, self).__getitem__(item)
+
+    def __setitem__(self, key, value):
+        if callable(self._set_callback):
+            ret = self._set_callback(self, key, value)
+            if ret is not None:
+                return ret
+        super(CallbackDict, self).__setitem__(key, value)
 
 
 @python_2_unicode_compatible
@@ -66,7 +88,11 @@ class MultiFormMixin(object):
     def _form_classes(self):
         return self.get_form_classes(*self.args, **self.kwargs)
 
-    def __init__(self, data=None, files=None, *args, **kwargs):
+    @property
+    def default_form(self):
+        return self.forms[self.default_key]
+
+    def __init__(self, data=None, files=None, auto_id='id_%s', *args, **kwargs):
         # Some things, such as the WizardView expect these to exist.
         self.data, self.files = data, files
         kwargs.update(
@@ -74,6 +100,8 @@ class MultiFormMixin(object):
             files=files,
         )
         self.prefix = kwargs.get('prefix')
+        self.auto_id = auto_id
+        self.initial = kwargs.get('initial', {})
         self.error_class = kwargs.pop('error_class', ErrorList)
         self.initials = self.get_initials(initial=kwargs.pop('initial', None), *args, **kwargs)
         self.crossform_errors = []
@@ -87,8 +115,10 @@ class MultiFormMixin(object):
 
     def _init(self, *args, **kwargs):
         self.forms = self.get_forms(*args, **kwargs)
-        self.fields = self._get_fields()
+        self._fields = self._get_fields()
+        self._form_fields = {}
         self.aliased_fields = self._get_aliased_fields()
+        self.aliased_fields.update(self._get_aliased_forms())
 
     def _build_field_name(self, name, prefix):
         return "%s_%s" % (prefix, name)
@@ -108,18 +138,29 @@ class MultiFormMixin(object):
         fields = defaultdict(list)
         for form_key, form in self.forms.items():
             if isinstance(form, forms.BaseFormSet):
-                fields[form_key].append(form)
+                # fields[form_key].append(form)
                 continue
             for f in form:
                 fields[f.name].append(f)
         return dict(fields)
 
+    def _get_aliased_forms(self):
+        _forms_map = defaultdict(list)
+        for f_name, form in self.forms.items():
+            form_key = f_name + '_form'
+            if isinstance(form, forms.BaseFormSet):
+                form_key = f_name + '_formset'
+
+            _forms_map[form_key] = form
+        return _forms_map
+
     def _get_fields(self):
         fields = {}
         for form_key, form in self.forms.items():
             if isinstance(form, forms.BaseFormSet):
-                fields[self._build_field_name(form_key, form.prefix)] = form
+                # fields[self._build_field_name(form_key, form.prefix)] = form
                 continue
+
             for f in form:
                 fields[self._build_field_name(f.name, form.prefix)] = f
         return fields
@@ -177,24 +218,59 @@ class MultiFormMixin(object):
     def __str__(self):
         return self.as_table()
 
-    def __getitem__(self, key):
+    @property
+    def fields(self):
+        def set_callback(_d, key, field):
+            self._set_field(key, field)
+            return False
+
+        return CallbackDict(self._fields, set_callback=set_callback)
+
+    def _get_field(self, name):
         try:
-            return self.fields[key]
+            return self.fields[name]
         except KeyError:
-            fields = self.aliased_fields[key]
+            fields = self.aliased_fields[name]
+            if isinstance(fields, (forms.BaseFormSet, forms.BaseForm)):
+                return fields
+
             if len(fields) > 1:
-                raise KeyError("Fields '%s' more than 1" % key)
+                raise KeyError("Fields '%s' more than 1" % name)
             return fields[0]
+
+    def _set_field(self, name, field):
+        bound_field = BoundField(form=self, field=field, name=name)
+        if name not in self.aliased_fields:
+            self.aliased_fields[name] = []
+
+        self.aliased_fields[name].append(bound_field)
+        field_name = self._build_field_name(name, self.prefix)
+        self._form_fields[field_name] = self._fields[field_name] = bound_field
+
+    def __getitem__(self, key):
+        return self._get_field(key)
+
+    def __setitem__(self, key, field):
+        self._set_field(key, field)
 
     def __iter__(self):
         # TODO: Should the order of the fields be controllable from here?
-        return chain.from_iterable(self.forms.values())
+        return chain.from_iterable(self.forms.values() + [self._form_fields.values()])
 
     @property
     def changed_data(self):
         if self._changed_data is None:
-            self._changed_data = list(chain.from_iterable(form.changed_data for form in self.cleaned_forms.values()))
+            _changed_data = []
+            for form in self.cleaned_forms.values():
+                if isinstance(form, forms.BaseFormSet):
+                    _changed_data.append([f.changed_data for f in form])
+                else:
+                    _changed_data.append(form.changed_data)
+            self._changed_data = list(chain.from_iterable(_changed_data))
         return self._changed_data
+
+    def has_changed(self):
+        return any(form.has_changed() for form in self.cleaned_forms.values())
 
     @property
     def is_bound(self):
@@ -304,10 +380,10 @@ class MultiFormMixin(object):
     def hidden_fields(self):
         # copy implementation instead of delegating in case we ever
         # want to override the field ordering.
-        return [field for field in self if field.is_hidden]
+        return [field for field in self if getattr(field, 'is_hidden', None)]
 
     def visible_fields(self):
-        return [field for field in self if not field.is_hidden]
+        return [field for field in self if getattr(field, 'is_hidden', None)]
 
     @property
     def cleaned_data(self):
@@ -319,7 +395,19 @@ class MultiFormMixin(object):
     @cleaned_data.setter
     def cleaned_data(self, data):
         for key, value in data.items():
-            self.forms[key].cleaned_data = value
+            form = self.forms[key]
+            if isinstance(form, forms.BaseFormSet):
+                map_data = {}
+                for d in value:
+                    _ins = d.get('id')
+                    if _ins:
+                        map_data['id'] = _ins.id
+
+                for i, _form in enumerate(form.forms):
+                    obj_id = _form.instance and _form.instance.id
+                    _form.cleaned_data = map_data.get(obj_id) or value[i]
+            else:
+                form.cleaned_data = value
 
     @classproperty
     def base_fields(cls):
@@ -346,6 +434,7 @@ class MultiModelFormMixin(MultiFormMixin):
 
     class Meta(MultiFormMixin.Meta):
         model = None
+        exclude = []
 
     def __init__(self, *args, **kwargs):
         self.instances = self.get_instances(kwargs.pop('instance', None), *args, **kwargs)
@@ -376,7 +465,10 @@ class MultiModelFormMixin(MultiFormMixin):
             return instance
         else:
             try:
-                return getattr_path(instance, key)
+                instance = getattr_path(instance, key)
+                if isinstance(instance, models.Manager):
+                    return instance.filter()
+                return instance
             except AttributeError:
                 pass
         return False
@@ -432,7 +524,11 @@ class MultiModelFormMixin(MultiFormMixin):
                 setattr_path(obj, sub_key, sub_obj)
         else:
             if commit:
-                obj.save()
+                if isinstance(obj, list):
+                    for o in obj:
+                        o.save()
+                else:
+                    obj.save()
 
         return obj
 
