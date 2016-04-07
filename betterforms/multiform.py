@@ -11,6 +11,7 @@ from django.db import models
 from collections import defaultdict
 
 from django.db.transaction import atomic
+from django.forms.formsets import DELETION_FIELD_NAME, ORDERING_FIELD_NAME
 from django.forms.models import modelform_factory
 
 from betterforms.utils import classproperty, getattr_path, setattr_path
@@ -198,9 +199,8 @@ class MultiFormMixin(object):
         prefix = self.kwargs.get('prefix')
         if prefix is None:
             prefix = form_key
-        else:
+        elif form_key != self.default_key:
             prefix = '{0}_{1}'.format(form_key, prefix)
-
         return prefix
 
     def get_form_args_kwargs(self, key, form_class, args, kwargs):
@@ -239,13 +239,16 @@ class MultiFormMixin(object):
             return fields[0]
 
     def _set_field(self, name, field):
-        bound_field = BoundField(form=self, field=field, name=name)
+        default_form = self.default_form
+        default_form.fields[name] = field
+        bound_field = default_form[name]
+
         if name not in self.aliased_fields:
             self.aliased_fields[name] = []
 
         self.aliased_fields[name].append(bound_field)
         field_name = self._build_field_name(name, self.prefix)
-        self._form_fields[field_name] = self._fields[field_name] = bound_field
+        self._fields[field_name] = bound_field
 
     def __getitem__(self, key):
         return self._get_field(key)
@@ -521,16 +524,46 @@ class MultiModelFormMixin(MultiFormMixin):
             for sub_key, sub_obj in objects.items():
                 if sub_key == default_key:
                     continue
+                if isinstance(sub_obj, list):
+                    continue
+
                 setattr_path(obj, sub_key, sub_obj)
         else:
             if commit:
                 if isinstance(obj, list):
                     for o in obj:
-                        o.save()
+                        if getattr(o, 'DO_DELETE', False):
+                            o.delete()
+                        else:
+                            o.save()
+
                 else:
                     obj.save()
 
         return obj
+
+    @property
+    def cleaned_objects(self):
+        objects = OrderedDict()
+        for key, form in self.cleaned_forms.items():
+            if isinstance(form, forms.BaseFormSet):
+                obj_list = []
+                for f in form:
+
+                    c_data = f.cleaned_data
+                    if isinstance(f, MultiFormMixin):
+                        c_data = c_data[f.default_key]
+
+                    obj = f.save(commit=False)
+                    is_delete = c_data.get(DELETION_FIELD_NAME)
+                    setattr(obj, 'DO_DELETE', is_delete)
+                    setattr(obj, 'DO_ORDER', c_data.get(ORDERING_FIELD_NAME))
+                    obj_list.append(obj)
+
+                objects[key] = obj_list
+            else:
+                objects[key] = form.save(commit=False)
+        return objects
 
     def save_objects(self, objects, commit=True):
         default_key = self.default_key
@@ -546,12 +579,8 @@ class MultiModelFormMixin(MultiFormMixin):
 
         return objects
 
-    @atomic
     def save_multiform(self, commit=True):
-        objects = OrderedDict(
-            (key, form.save(commit=False))
-            for key, form in self.cleaned_forms.items()
-        )
+        objects = self.cleaned_objects
         objects = self.save_objects(objects, commit=commit)
 
         if any(hasattr(form, 'save_m2m') for form in self.cleaned_forms.values()):
