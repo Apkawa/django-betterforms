@@ -14,7 +14,7 @@ from django.db.transaction import atomic
 from django.forms.formsets import DELETION_FIELD_NAME, ORDERING_FIELD_NAME
 from django.forms.models import modelform_factory
 
-from betterforms.utils import classproperty, getattr_path, setattr_path
+from betterforms.utils import classproperty, getattr_path, setattr_path, depth_save_relations
 
 try:
     from collections import OrderedDict
@@ -535,11 +535,9 @@ class MultiModelFormMixin(MultiFormMixin):
                         if getattr(o, 'DO_DELETE', False):
                             o.delete()
                         else:
-                            o.save()
-
+                            depth_save_relations(o)
                 else:
-                    obj.save()
-
+                    depth_save_relations(obj)
         return obj
 
     @property
@@ -573,7 +571,7 @@ class MultiModelFormMixin(MultiFormMixin):
             self.save_object(obj, key, objects, commit=commit)
 
         instance = objects[default_key]
-        self.save_object(instance, default_key, objects)
+        self.save_object(instance, default_key, objects, commit=commit)
         if commit:
             instance.save()
 

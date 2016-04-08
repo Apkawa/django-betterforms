@@ -2,6 +2,8 @@
 from __future__ import unicode_literals
 
 import six
+from django.core.exceptions import ObjectDoesNotExist
+from django.db.models import ForeignKey
 from django.template import Variable, VariableDoesNotExist
 
 
@@ -80,3 +82,20 @@ def setattr_path(obj, path, value):
 
     sub_obj = getattr_path(obj, parts[:-1])
     setattr(sub_obj, parts[-1], value)
+
+
+def depth_save_relations(obj):
+    for field, _ in obj._meta.get_fields_with_model():
+        if not isinstance(field, ForeignKey):
+            continue
+
+        f_name = field.name
+        try:
+            rel_obj = getattr(obj, f_name)
+            if rel_obj and not rel_obj.pk:
+                depth_save_relations(rel_obj)
+                setattr(obj, f_name, rel_obj)
+        except ObjectDoesNotExist:
+            pass
+
+    obj.save()
