@@ -570,7 +570,7 @@ class MultiModelFormMixin(MultiFormMixin):
         for key, obj in objects.items():
             if key == default_key:
                 continue
-            self.save_object(obj, key, objects)
+            self.save_object(obj, key, objects, commit=commit)
 
         instance = objects[default_key]
         self.save_object(instance, default_key, objects)
