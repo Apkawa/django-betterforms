@@ -18,7 +18,7 @@ INSTALLED_APPS = (
     'django.contrib.auth',
     'django.contrib.admin',
     'django.contrib.staticfiles',
-    'tests',
+    'example_project',
     'betterforms',
 )
 
@@ -29,7 +29,7 @@ DATABASES = {
     }
 }
 
-ROOT_URLCONF = 'tests.urls'
+ROOT_URLCONF = 'example_project.urls'
 
 STATIC_URL = '/static/'
 DEBUG = True

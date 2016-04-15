@@ -1,11 +1,12 @@
 from collections import OrderedDict
 
 from django import forms
-from django.forms.models import inlineformset_factory
+from django.forms import formset_factory
+from django.forms.models import inlineformset_factory, modelformset_factory, modelform_factory
 from django.contrib.admin import widgets as admin_widgets
 from django.core.exceptions import ValidationError
 
-from betterforms.multiform import MultiFormMixin, MultiModelFormMixin
+from betterforms.multiform import MultiFormMixin, MultiModelFormMixin, MultiModelForm
 
 from .models import User, Profile, Badge, Author, Book, BookImage
 
@@ -158,3 +159,22 @@ class ModifiesDataCustomCleanMultiform(UserProfileMultiForm):
         cleaned_data = super(UserProfileMultiForm, self).clean()
         cleaned_data['profile']['display_name'] = "cleaned name"
         return cleaned_data
+
+
+class BookImageMultiform(MultiModelForm):
+    default_form_key = 'image'
+    form_classes = {
+        default_form_key: modelform_factory(BookImage, exclude=['book']),
+        'example': formset_factory(NonModelForm)
+    }
+
+
+class BookModelMultiform(MultiModelForm):
+    default_form_key = 'book'
+
+    form_classes = {
+        default_form_key: BookForm,
+        'images': modelformset_factory(BookImage,
+            form=BookImageMultiform, can_delete=True, can_order=False, extra=0)
+
+    }

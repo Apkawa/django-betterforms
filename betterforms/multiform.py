@@ -504,6 +504,7 @@ class MultiModelFormMixin(MultiFormMixin):
             if form_key == self.default_key:
                 # maybe admin.site
                 defaults['formfield_callback'] = getattr(self, 'formfield_callback', None)
+            defaults['form'] = base_form_class
             return modelform_factory(model, **defaults)
         return base_form_class
 

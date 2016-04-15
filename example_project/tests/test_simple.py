@@ -1,18 +1,19 @@
 from collections import OrderedDict
 
-from django.test import TestCase
 from django.test.client import RequestFactory
 from django.views.generic import CreateView
 from django.core import urlresolvers
 from django.utils.encoding import force_text
 
-from .models import User, Profile, Badge, Book
-from .forms import (
+from ..models import User, Profile, Badge, Book
+from ..forms import (
     UserProfileMultiForm, BadgeMultiForm, ErrorMultiForm,
     MixedForm, NeedsFileField, ManyToManyMultiForm, Step2Form,
     BookMultiForm, RaisesErrorCustomCleanMultiform,
     ModifiesDataCustomCleanMultiform,
 )
+
+from .utils import TestCase
 
 
 class MultiFormTest(TestCase):
@@ -59,8 +60,10 @@ class MultiFormTest(TestCase):
 
     def test_as_p(self):
         form = UserProfileMultiForm()
+
         user_p = form['user'].as_p()
         profile_p = form['profile'].as_p()
+
         self.assertEqual(form.as_p(), user_p + profile_p)
 
     def test_is_not_valid(self):
@@ -260,8 +263,8 @@ class MultiModelFormTest(TestCase):
             }
         )
 
-        self.assertEqual(form['user'].instance, user)
-        self.assertEqual(form['profile'].instance, profile)
+        self.assertEqual(form['user_form'].instance, user)
+        self.assertEqual(form['profile_form'].instance, profile)
 
     def test_model_and_non_model_forms(self):
         # This tests that it is possible to instantiate a non-model form using
