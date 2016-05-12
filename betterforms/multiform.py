@@ -532,11 +532,14 @@ class MultiModelFormMixin(MultiFormMixin):
         else:
             if commit:
                 if isinstance(obj, list):
+                    new_obj_list = []
                     for o in obj:
                         if getattr(o, 'DO_DELETE', False):
                             o.delete()
                         else:
                             depth_save_relations(o)
+                            new_obj_list.append(o)
+                    obj = new_obj_list
                 else:
                     depth_save_relations(obj)
         return obj
