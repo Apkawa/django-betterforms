@@ -556,15 +556,17 @@ class MultiModelFormMixin(MultiFormMixin):
                     if isinstance(f, MultiFormMixin):
                         c_data = c_data[f.default_key]
 
-                    obj = f.save(commit=False)
-                    is_delete = c_data.get(DELETION_FIELD_NAME)
-                    setattr(obj, 'DO_DELETE', is_delete)
-                    setattr(obj, 'DO_ORDER', c_data.get(ORDERING_FIELD_NAME))
-                    obj_list.append(obj)
+                    if isinstance(f, forms.BaseModelForm):
+                        obj = f.save(commit=False)
+                        is_delete = c_data.get(DELETION_FIELD_NAME)
+                        setattr(obj, 'DO_DELETE', is_delete)
+                        setattr(obj, 'DO_ORDER', c_data.get(ORDERING_FIELD_NAME))
+                        obj_list.append(obj)
 
                 objects[key] = obj_list
             else:
-                objects[key] = form.save(commit=False)
+                if isinstance(form, forms.BaseModelForm):
+                    objects[key] = form.save(commit=False)
         return objects
 
     def save_objects(self, objects, commit=True):
