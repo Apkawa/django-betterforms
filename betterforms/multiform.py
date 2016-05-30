@@ -294,13 +294,11 @@ class MultiFormMixin(object):
         return self._errors
 
     def clean_forms(self):
-        required_forms = set(self.get_required_forms())
+        required_forms = self.get_required_forms()
         forms = dict(self.forms)
         for key, form in forms.items():
             if not form.has_changed() and key not in required_forms:
                 del forms[key]
-            else:
-                print key
         return forms
 
     @property
@@ -558,7 +556,7 @@ class MultiModelFormMixin(MultiFormMixin):
                     if isinstance(f, MultiFormMixin):
                         c_data = c_data[f.default_key]
 
-                    if isinstance(f, (forms.BaseModelForm, MultiModelFormMixin)):
+                    if isinstance(f, forms.BaseModelForm):
                         obj = f.save(commit=False)
                         is_delete = c_data.get(DELETION_FIELD_NAME)
                         setattr(obj, 'DO_DELETE', is_delete)
@@ -567,12 +565,11 @@ class MultiModelFormMixin(MultiFormMixin):
 
                 objects[key] = obj_list
             else:
-                if isinstance(form, (forms.BaseModelForm, MultiModelFormMixin)):
+                if isinstance(form, forms.BaseModelForm):
                     objects[key] = form.save(commit=False)
         return objects
 
     def save_objects(self, objects, commit=True):
-        commit = True
         default_key = self.default_key
         for key, obj in objects.items():
             if key == default_key:
