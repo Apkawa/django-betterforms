@@ -113,6 +113,7 @@ class MultiFormMixin(object):
 
         self._errors = None
         self._changed_data = None
+        self.empty_permitted = kwargs.get('empty_permitted', False)
 
     def _init(self, *args, **kwargs):
         self.forms = self.get_forms(*args, **kwargs)
@@ -511,6 +512,8 @@ class MultiModelFormMixin(MultiFormMixin):
     def get_form_args_kwargs(self, key, form_class, args, kwargs):
         fargs, fkwargs = super(MultiModelFormMixin, self).get_form_args_kwargs(key, form_class, args, kwargs)
         try:
+            if issubclass(form_class, forms.BaseFormSet):
+                fkwargs.pop('empty_permitted', None)
             if issubclass(form_class, forms.BaseModelFormSet):
                 fkwargs['queryset'] = self.instances[key]
             else:
@@ -551,8 +554,10 @@ class MultiModelFormMixin(MultiFormMixin):
             if isinstance(form, forms.BaseFormSet):
                 obj_list = []
                 for f in form:
-
+                    if f.empty_permitted and not f.has_changed():
+                        continue
                     c_data = f.cleaned_data
+
                     if isinstance(f, MultiFormMixin):
                         c_data = c_data[f.default_key]
 
