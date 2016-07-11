@@ -441,7 +441,13 @@ class MultiModelFormMixin(MultiFormMixin):
         exclude = []
 
     def __init__(self, *args, **kwargs):
-        self.instances = self.get_instances(kwargs.pop('instance', None), *args, **kwargs)
+        instance = kwargs.pop('instance', None)
+
+        opts = self._meta
+        if not instance and opts.model:
+            instance = opts.model()
+
+        self.instances = self.get_instances(instance, *args, **kwargs)
         if self.instances is None:
             self.instances = {}
         # default instance
@@ -469,16 +475,20 @@ class MultiModelFormMixin(MultiFormMixin):
             return instance
         else:
             try:
-                instance = getattr_path(instance, key)
-                if isinstance(instance, models.Manager):
-                    return instance.filter()
-                return instance
+                sub_instance = getattr_path(instance, key)
+                if isinstance(sub_instance, models.Manager):
+                    if instance.pk:
+                        return sub_instance.filter()
+                    else:
+                        return sub_instance.none()
+                return sub_instance
             except AttributeError:
                 pass
         return False
 
     def get_default_instance(self):
-        return self.instances.get(self.default_key)
+        instance = self.instances.get(self.default_key)
+        return instance
 
     def _build_form_class(self, form_key, base_form_class):
         defaults = dict.fromkeys(['fields', 'exclude', 'widgets', 'model'])
