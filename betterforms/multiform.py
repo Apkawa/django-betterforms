@@ -524,10 +524,16 @@ class MultiModelFormMixin(MultiFormMixin):
         try:
             if issubclass(form_class, forms.BaseFormSet):
                 fkwargs.pop('empty_permitted', None)
-            if issubclass(form_class, forms.BaseModelFormSet):
+
+
+            if issubclass(form_class, forms.BaseInlineFormSet):
+                fkwargs['instance'] = self.instance
+
+            elif issubclass(form_class, forms.BaseModelFormSet):
                 fkwargs['queryset'] = self.instances[key]
             else:
                 fkwargs['instance'] = self.instances[key]
+
         except KeyError:
             pass
         return fargs, fkwargs
