@@ -85,7 +85,7 @@ def setattr_path(obj, path, value):
 
 
 def depth_save_relations(obj):
-    for field, _ in obj._meta.get_fields_with_model():
+    for field in obj._meta.get_fields():
         if not isinstance(field, ForeignKey):
             continue
 

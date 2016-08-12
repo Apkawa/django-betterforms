@@ -1,7 +1,7 @@
 # coding: utf-8
 from unittest import TestCase
 
-from ..utils import _getattr_path, getattr_path, setattr_path
+from betterforms.utils import _getattr_path, getattr_path, setattr_path
 
 
 class UtilTest(TestCase):

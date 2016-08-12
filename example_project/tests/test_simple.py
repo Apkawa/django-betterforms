@@ -29,23 +29,30 @@ class MultiFormTest(TestCase):
             }
         )
 
-        self.assertEqual(form['user']['name'].value(), 'foo')
-        self.assertEqual(form['profile']['display_name'].value(), 'bar')
+        self.assertEqual(form['user_name'].value(), 'foo')
+        try:
+            form['name']
+        except KeyError as e:
+            self.assert_(isinstance(e, KeyError))
+            self.assertEqual(e.message, "Fields 'name' more than 1")
+        self.assertEqual(form['display_name'].value(), 'bar')
+        self.assertEqual(form['profile_display_name'].value(), 'bar')
 
     def test_iter(self):
+        # TODO Fixme
         form = UserProfileMultiForm()
         # get the field off of the BoundField
         fields = [field.field for field in form]
         self.assertEqual(fields, [
-            form['user'].fields['name'],
-            form['profile'].fields['name'],
-            form['profile'].fields['display_name'],
+            form['user_name'].field,
+            form['profile_display_name'].field,
+            form['profile_name'].field,
         ])
 
     def test_as_table(self):
         form = UserProfileMultiForm()
-        user_table = form['user'].as_table()
-        profile_table = form['profile'].as_table()
+        user_table = form['user_form'].as_table()
+        profile_table = form['profile_form'].as_table()
         self.assertEqual(form.as_table(), user_table + profile_table)
 
     def test_to_str_is_as_table(self):
@@ -54,15 +61,15 @@ class MultiFormTest(TestCase):
 
     def test_as_ul(self):
         form = UserProfileMultiForm()
-        user_ul = form['user'].as_ul()
-        profile_ul = form['profile'].as_ul()
+        user_ul = form['user_form'].as_ul()
+        profile_ul = form['profile_form'].as_ul()
         self.assertEqual(form.as_ul(), user_ul + profile_ul)
 
     def test_as_p(self):
         form = UserProfileMultiForm()
 
-        user_p = form['user'].as_p()
-        profile_p = form['profile'].as_p()
+        user_p = form['user_form'].as_p()
+        profile_p = form['profile_form'].as_p()
 
         self.assertEqual(form.as_p(), user_p + profile_p)
 

@@ -1,7 +1,7 @@
 from __future__ import print_function
 import os
 
-SECRET_KEY = 'JVpuGfSgVm2IxJ03xArw5mwmPuYEzAJMbhsTnvLXOPSQR4z93o'
+SECRET_KEY = 'easy'
 
 PROJECT_PATH = os.path.abspath(os.path.dirname(__file__))
 
@@ -18,6 +18,7 @@ INSTALLED_APPS = (
     'django.contrib.auth',
     'django.contrib.admin',
     'django.contrib.staticfiles',
+
     'example_project',
     'betterforms',
 )
@@ -33,3 +34,10 @@ ROOT_URLCONF = 'example_project.urls'
 
 STATIC_URL = '/static/'
 DEBUG = True
+
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'APP_DIRS': True,
+    },
+]

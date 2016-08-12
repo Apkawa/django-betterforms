@@ -29,6 +29,8 @@ except ImportError:  # Django < 1.7
 from django.core.exceptions import ValidationError
 from django.utils.encoding import python_2_unicode_compatible
 from django.utils.safestring import mark_safe
+
+# FIXME for 1.10?
 from django.utils.six.moves import reduce
 
 from .decorators import lru_cache

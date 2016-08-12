@@ -7,7 +7,7 @@ class User(models.Model):
 
 
 class Profile(models.Model):
-    user = models.OneToOneField('User', related_name='profile')
+    user = models.OneToOneField('User', related_name='profile', on_delete=models.CASCADE)
 
     display_name = models.CharField(max_length=255, blank=True)
 
@@ -27,5 +27,5 @@ class Book(models.Model):
 
 
 class BookImage(models.Model):
-    book = models.ForeignKey(Book, related_name='images')
+    book = models.ForeignKey(Book, related_name='images', on_delete=models.CASCADE)
     name = models.CharField(max_length=255)

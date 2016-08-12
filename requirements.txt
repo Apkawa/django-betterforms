@@ -1,3 +1,9 @@
 Django>=1.4
 six
 backports.functools_lru_cache
+
+pytest
+pytest-django
+pytest-pythonpath
+pytest-cov
+mock
