@@ -86,6 +86,19 @@ class MultiFormMixin(object):
     def _meta(cls):
         return cls.Meta
 
+    @classproperty
+    def base_fields(cls):
+        # TODO dynamic fields
+        base_fields = {}
+        for form_key, form in cls.form_classes.items():
+            for f_name, field in form.base_fields.items():
+                base_fields[cls._build_field_name(f_name, form_key)] = field
+        return base_fields
+
+    @classproperty
+    def declared_fields(cls):
+        return cls.base_fields
+
     @property
     @lru_cache(maxsize=30)
     def _form_classes(self):
@@ -124,8 +137,9 @@ class MultiFormMixin(object):
         self.aliased_fields = self._get_aliased_fields()
         self.aliased_fields.update(self._get_aliased_forms())
 
-    def _build_field_name(self, name, prefix):
-        return "%s_%s" % (prefix, name)
+    @staticmethod
+    def _build_field_name(name, prefix):
+        return "%s__%s" % (prefix, name)
 
     def _update_field_form_map(self, form_key, form_class):
         if issubclass(form_class, forms.BaseFormSet):
@@ -227,11 +241,12 @@ class MultiFormMixin(object):
             self._set_field(key, field)
             return False
 
-        return CallbackDict(self._fields, set_callback=set_callback)
+        form_fields = {n: f.field for n, f in self._fields.items()}
+        return CallbackDict(form_fields, set_callback=set_callback)
 
     def _get_field(self, name):
         try:
-            return self.fields[name]
+            return self._fields[name]
         except KeyError:
             fields = self.aliased_fields[name]
             if isinstance(fields, (forms.BaseFormSet, forms.BaseForm)):
@@ -245,6 +260,7 @@ class MultiFormMixin(object):
         default_form = self.default_form
         default_form.fields[name] = field
         bound_field = default_form[name]
+
 
         if name not in self.aliased_fields:
             self.aliased_fields[name] = []
@@ -415,15 +431,6 @@ class MultiFormMixin(object):
             else:
                 form.cleaned_data = value
 
-    @classproperty
-    def base_fields(cls):
-        # TODO dynamic fields
-        base_fields = {}
-        for form_key, form in cls.form_classes.items():
-            for f_name, field in form.base_fields.items():
-                base_fields['_'.join([form_key, f_name])] = field
-        return base_fields
-
     @property
     def default_key(self):
         return self.default_form_key
@@ -503,10 +510,11 @@ class MultiModelFormMixin(MultiFormMixin):
                 if self.field_form_map and meta_opt and opt_key in ['fields', 'exclude']:
                     for _f in meta_opt:
                         if self.field_form_map.get(_f) == form_key:
+                            if _f.startswith(form_key + '__'):
+                                _f = _f[len(form_key + '__'):]
                             cleaned_meta_opt.append(_f)
                     if cleaned_meta_opt:
                         meta_opt = cleaned_meta_opt
-
                 elif form_key != self.default_key:
                     continue
 
@@ -526,7 +534,6 @@ class MultiModelFormMixin(MultiFormMixin):
         try:
             if issubclass(form_class, forms.BaseFormSet):
                 fkwargs.pop('empty_permitted', None)
-
 
             if issubclass(form_class, forms.BaseInlineFormSet):
                 fkwargs['instance'] = self.instance
